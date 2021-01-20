@@ -1,0 +1,122 @@
+---
+title: "Choropleth"
+author: "David"
+date: "1/14/2021"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float:
+      collapsed: false
+    theme: flatly
+    highlight: tango
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, 
+                      message = FALSE, 
+                      warning = FALSE)
+options(scipen = 123)
+```
+
+load packages yang akan digunakan 
+```{r}
+# Data Wrangling
+library(dplyr)
+library(glue)
+
+# read shp file
+library(geojsonio)
+
+# visualization
+library(leaflet)
+```
+
+
+Read Data yang akan digunakan.       
+
+Data update covid di dapat dari [BNPB]( https://bnpb-inacovid19.hub.arcgis.com/datasets/data-harian-kasus-per-provinsi-covid-19-indonesia) berupa API
+
+```{r}
+corona <- geojson_read("https://opendata.arcgis.com/datasets/0c0f4558f1e548b68a1c82112744bad3_0.geojson", what = "sp")
+corona@data
+```
+
+
+Data shapefile Indonesia 2. [Indonesia Spatial Dataset](https://gadm.org/download_country_v3.html)     
+
+```{r}
+indo_sf <- readRDS("gadm36_IDN_1_sp.rds")
+indo_sf@data
+```
+
+### Join 2 dataset
+
+check province name
+```{r}
+indo_sf@data %>% 
+  filter(!NAME_1 %in% corona@data$Provinsi)
+```
+Dari 2 data yang ada terdapat 2 nama provinsi yang berbeda. Samakan kedua nama provinsi tersebut
+
+```{r}
+indo_sf@data <- indo_sf@data %>% 
+  mutate(NAME_1 = case_when(NAME_1 == "Jakarta Raya" ~ "DKI Jakarta", 
+                            NAME_1 == "Yogyakarta"~ "Daerah Istimewa Yogyakarta", 
+                            TRUE~NAME_1)) %>% 
+  left_join(corona@data, by = c("NAME_1"= "Provinsi"))
+```
+
+
+### Visualization 
+
+#### Buat Label
+
+```{r}
+labels_covid <- glue("<b> {indo_sf@data$NAME_1}</b> <br>
+                     Jumlah Kasus Positif : {indo_sf@data$Kasus_Posi}") %>% 
+  lapply(htmltools::HTML)
+```
+
+
+#### Skala Warna
+
+
+```{r}
+boxplot(log(indo_sf@data$Kasus_Posi))
+```
+
+
+```{r}
+pal <- colorNumeric(palette = "Reds", 
+                    domain = log(indo_sf@data$Kasus_Posi))
+```
+
+
+
+#### Buat Visualisasi
+
+
+```{r}
+indo_sf %>% 
+  leaflet() %>% 
+  addProviderTiles(providers$CartoDB.DarkMatter) %>% 
+  addPolygons(fillColor = pal(log(indo_sf@data$Kasus_Posi)), 
+              fillOpacity = 0.8, 
+              weight = 2, 
+              label = labels_map,  
+              color = "white", 
+              highlightOptions = highlightOptions(
+                color = "blue", 
+                weight = 5, 
+                bringToFront = TRUE, 
+                opacity = 0.8
+              )) %>% 
+  addLegend(pal = pal, 
+            values = log(indo_sf@data$Kasus_Posi), 
+            labFormat = labelFormat(transform = function(x) round(exp(x))), 
+            opacity = 1,
+            title = "Kasus Positif Harian Covid-19", position = "bottomright")
+```
+
